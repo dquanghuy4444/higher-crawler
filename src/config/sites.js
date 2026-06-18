@@ -6,6 +6,7 @@ import crawlLazadaSite from "../sites/s-tier/lazada-site.js";
 import crawlSjcSite from "../sites/s-tier/sjc-site.js";
 import crawlVibloSite from "../sites/s-tier/viblo-site.js";
 import crawlYoutubeThumbnailGrabberSite from "../sites/m-tier/youtube-thumbnail-grabber-site.js";
+import crawlYtdownSite from "../sites/h-tier/ytdown-site.js";
 
 export const siteRegistry = [
   {
@@ -47,5 +48,10 @@ export const siteRegistry = [
     key: "youtube-thumbnail-grabber.com",
     description: "Dung browser bot de nhap link YouTube va lay cac thumbnail.",
     crawl: crawlYoutubeThumbnailGrabberSite
+  },
+  {
+    key: "app.ytdown.to",
+    description: "Dung persistent browser profile de nhap link YouTube va lay link download.",
+    crawl: crawlYtdownSite
   }
 ];

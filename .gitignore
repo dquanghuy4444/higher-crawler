@@ -1,4 +1,5 @@
 node_modules/
+.venv/
 
 .env
 .env.*
@@ -15,6 +16,7 @@ dist/
 build/
 coverage/
 .cache/
+.browser-profiles/
 
 .DS_Store
 Thumbs.db

@@ -94,6 +94,22 @@ curl -X POST http://localhost:3000/api/crawl \
   }'
 ```
 
+## YTDown
+
+```bash
+curl -X POST http://localhost:3000/api/crawl \
+  -H "Content-Type: application/json" \
+  -d '{
+    "site": "app.ytdown.to",
+    "youtube_url": "https://www.youtube.com/watch?v=xugy0bQHfgM",
+    "timeout_ms": 120000,
+    "manual_verify_timeout_ms": 180000,
+    "browser_visible": true,
+    "slow_mo_ms": 150,
+    "keep_browser_open_ms": 10000
+  }'
+```
+
 ## Lazada
 
 ```bash
