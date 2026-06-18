@@ -1,6 +1,6 @@
 import * as cheerio from "cheerio";
 
-import createAxiosInstance from "../lib/create-axios-instance.js";
+import createAxiosInstance from "../../lib/create-axios-instance.js";
 
 const dojiInstance = createAxiosInstance("http://giavang.doji.vn");
 

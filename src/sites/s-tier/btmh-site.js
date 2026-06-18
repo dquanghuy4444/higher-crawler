@@ -1,7 +1,7 @@
 import https from "node:https";
 import * as cheerio from "cheerio";
 
-import createAxiosInstance from "../lib/create-axios-instance.js";
+import createAxiosInstance from "../../lib/create-axios-instance.js";
 
 const btmhInstance = createAxiosInstance("https://baotinmanhhai.vn", {
   httpsAgent: new https.Agent({

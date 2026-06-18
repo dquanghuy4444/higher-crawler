@@ -46,6 +46,42 @@ Hoac:
 }
 ```
 
+Hoac crawl bai viet Viblo theo URL:
+
+```json
+{
+  "site": "viblo.asia",
+  "url": "https://viblo.asia/p/request-di-qua-server-nhu-the-nao-backend-internals-p1-ymJXDlN5Jkq"
+}
+```
+
+Hoac crawl bai viet Dantri theo URL:
+
+```json
+{
+  "site": "dantri.com.vn",
+  "url": "https://dantri.com.vn/phap-luat/ben-trong-me-hon-tran-ban-ky-nghi-lua-nguoi-gia-20260618001815122.htm"
+}
+```
+
+Hoac crawl san pham Shopee theo URL:
+
+```json
+{
+  "site": "shopee.vn",
+  "url": "https://shopee.vn/Gi%C3%A0y-Th%E1%BB%83-Thao-sneaker-N%E1%BB%AF-Biti's-Hunter-HSW015500-i.25211549.51254808076"
+}
+```
+
+Hoac crawl san pham Lazada theo URL:
+
+```json
+{
+  "site": "lazada.vn",
+  "url": "https://www.lazada.vn/products/..."
+}
+```
+
 ## Them site moi
 
 1. Tao file moi trong `src/sites`, vi du `my-site.js`

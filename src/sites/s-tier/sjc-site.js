@@ -1,4 +1,4 @@
-import createAxiosInstance from "../lib/create-axios-instance.js";
+import createAxiosInstance from "../../lib/create-axios-instance.js";
 
 const sjcInstance = createAxiosInstance("https://sjc.com.vn");
 
