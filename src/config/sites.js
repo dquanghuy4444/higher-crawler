@@ -6,7 +6,7 @@ import crawlLazadaSite from "../sites/s-tier/lazada-site.js";
 import crawlSjcSite from "../sites/s-tier/sjc-site.js";
 import crawlVibloSite from "../sites/s-tier/viblo-site.js";
 import crawlYoutubeThumbnailGrabberSite from "../sites/m-tier/youtube-thumbnail-grabber-site.js";
-import crawlYtdownSite from "../sites/h-tier/ytdown-site.js";
+import crawlYtdownSite from "../sites/h-tier/ytdown-site/ytdown-site.js";
 
 export const siteRegistry = [
   {
