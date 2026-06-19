@@ -7,6 +7,7 @@ import crawlSjcSite from "../sites/s-tier/sjc-site.js";
 import crawlVibloSite from "../sites/s-tier/viblo-site.js";
 import crawlYoutubeThumbnailGrabberSite from "../sites/m-tier/youtube-thumbnail-grabber-site.js";
 import crawlYtdownSite from "../sites/h-tier/ytdown-site/ytdown-site.js";
+import crawlCrunchbaseSite from "../sites/h-tier/crunchbase/crunchbase-site.js";
 
 export const siteRegistry = [
   {
@@ -53,5 +54,10 @@ export const siteRegistry = [
     key: "app.ytdown.to",
     description: "Dung persistent browser profile de nhap link YouTube va lay link download.",
     crawl: crawlYtdownSite
+  },
+  {
+    key: "crunchbase.com",
+    description: "Tim kiem va lay thong tin cong ty tu Crunchbase bang ten cong ty.",
+    crawl: crawlCrunchbaseSite
   }
 ];
