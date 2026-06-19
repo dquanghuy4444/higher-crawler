@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const PYTHON_SCRIPT = path.join(__dirname, "ytdown_crawler.py");
+const PYTHON_SCRIPT = path.join(__dirname, "ytdown_crawler_camoufox.py");
 const PYTHON_BIN = process.env.PYTHON_BIN || "python";
 
 function createHttpError(statusCode, message, details = null) {
