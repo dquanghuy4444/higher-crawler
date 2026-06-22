@@ -9,6 +9,7 @@ import crawlYoutubeThumbnailGrabberSite from "../sites/m-tier/youtube-thumbnail-
 import crawlYtdownSite from "../sites/h-tier/ytdown/ytdown-site.js";
 import crawlCloudflareBypassSite from "../sites/h-tier/cloudflare-bypass/cloudflare-bypass-site.js";
 import crawlCrunchbaseSite from "../sites/h-tier/crunchbase/crunchbase-site.js";
+import crawlLittlebitSite from "../sites/h-tier/littlebit/littlebit-site.js";
 
 export const siteRegistry = [
   {
@@ -65,5 +66,10 @@ export const siteRegistry = [
     key: "crunchbase.com",
     description: "Tim kiem va lay thong tin cong ty tu Crunchbase bang ten cong ty.",
     crawl: crawlCrunchbaseSite
+  },
+  {
+    key: "littlebit.de",
+    description: "Lay thong tin san pham Littlebit tu URL san pham.",
+    crawl: crawlLittlebitSite
   }
 ];
