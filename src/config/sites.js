@@ -7,6 +7,7 @@ import crawlSjcSite from "../sites/s-tier/sjc-site.js";
 import crawlVibloSite from "../sites/s-tier/viblo-site.js";
 import crawlYoutubeThumbnailGrabberSite from "../sites/m-tier/youtube-thumbnail-grabber-site.js";
 import crawlYtdownSite from "../sites/h-tier/ytdown/ytdown-site.js";
+import crawlCloudflareBypassSite from "../sites/h-tier/cloudflare-bypass/cloudflare-bypass-site.js";
 import crawlCrunchbaseSite from "../sites/h-tier/crunchbase/crunchbase-site.js";
 
 export const siteRegistry = [
@@ -54,6 +55,11 @@ export const siteRegistry = [
     key: "app.ytdown.to",
     description: "Dung persistent browser profile de nhap link YouTube va lay link download.",
     crawl: crawlYtdownSite
+  },
+  {
+    key: "cloudflare-bypass",
+    description: "Mo URL bang engine anti-detect duoc chon de debug Cloudflare clearance.",
+    crawl: crawlCloudflareBypassSite
   },
   {
     key: "crunchbase.com",

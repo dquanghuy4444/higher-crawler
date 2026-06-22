@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cloudflare Bypass"
+  short_description: "Authorized anti-detect crawler playbook"
+  default_prompt: "Use $cloudflare-bypass to harden an authorized crawler against Cloudflare challenges."

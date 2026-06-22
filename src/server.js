@@ -1,6 +1,7 @@
 import express from "express";
 
 import { findSite, getSiteSummaries } from "./services/site-service.js";
+import crawlCloudflareBypassSite, { getDetectionTests } from "./sites/h-tier/cloudflare-bypass/cloudflare-bypass-site.js";
 
 const PORT = Number(process.env.PORT || 3000);
 const app = express();
@@ -25,6 +26,45 @@ app.get("/sites", (_request, response) => {
   response.status(200).json({
     items: getSiteSummaries()
   });
+});
+
+app.get("/api/cloudflare-bypass/tests", (_request, response) => {
+  response.status(200).json({
+    ok: true,
+    items: getDetectionTests()
+  });
+});
+
+app.get("/api/cloudflare-bypass", async (_request, response, next) => {
+  try {
+    const data = await crawlCloudflareBypassSite({
+      tests: "all",
+      methods: ["scrapling"],
+      timeout_ms: 30000,
+      headless: true
+    });
+
+    response.status(200).json({
+      ok: true,
+      data
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/cloudflare-bypass", async (request, response, next) => {
+  try {
+    const body = request.body ?? {};
+    const data = await crawlCloudflareBypassSite(body);
+
+    response.status(200).json({
+      ok: true,
+      data
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
 app.post("/api/crawl", async (request, response, next) => {
