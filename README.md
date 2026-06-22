@@ -64,6 +64,15 @@ Hoac crawl bai viet Dantri theo URL:
 }
 ```
 
+Hoac crawl job posting tren Horizont Jobs theo URL:
+
+```json
+{
+  "site": "horizont.jobs",
+  "url": "https://horizont.jobs/jobs/social-media-specialist-w-m-d-062074815-personalwerk-gmbh/"
+}
+```
+
 Hoac crawl san pham Shopee theo URL:
 
 ```json
@@ -79,6 +88,24 @@ Hoac crawl san pham Lazada theo URL:
 {
   "site": "lazada.vn",
   "url": "https://www.lazada.vn/products/..."
+}
+```
+
+Hoac crawl san pham ASUS theo URL:
+
+```json
+{
+  "site": "asus.com",
+  "url": "https://www.asus.com/de/laptops/for-home/vivobook/asus-vivobook-s16-s3607/"
+}
+```
+
+Hoac crawl san pham EXTRA Computer theo URL:
+
+```json
+{
+  "site": "extracomputer.de",
+  "url": "https://www.extracomputer.de/produkt/exone-business-mini-x14/153604"
 }
 ```
 

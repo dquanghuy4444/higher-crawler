@@ -2,6 +2,7 @@ import crawlBtmhSite from "../sites/s-tier/btmh-site.js";
 import crawlDantriSite from "../sites/s-tier/dantri-site.js";
 import crawlDojiSite from "../sites/s-tier/doji-site.js";
 import crawlFvidgoSite from "../sites/m-tier/fvidgo-site.js";
+import crawlHorizontJobsSite from "../sites/s-tier/horizont-jobs-site.js";
 import crawlLazadaSite from "../sites/s-tier/lazada-site.js";
 import crawlSjcSite from "../sites/s-tier/sjc-site.js";
 import crawlVibloSite from "../sites/s-tier/viblo-site.js";
@@ -9,6 +10,8 @@ import crawlYoutubeThumbnailGrabberSite from "../sites/m-tier/youtube-thumbnail-
 import crawlYtdownSite from "../sites/h-tier/ytdown/ytdown-site.js";
 import crawlCloudflareBypassSite from "../sites/h-tier/cloudflare-bypass/cloudflare-bypass-site.js";
 import crawlCrunchbaseSite from "../sites/h-tier/crunchbase/crunchbase-site.js";
+import crawlAsusSite from "../sites/h-tier/asus/asus-site.js";
+import crawlExtracomputerSite from "../sites/h-tier/extracomputer/extracomputer-site.js";
 import crawlLittlebitSite from "../sites/h-tier/littlebit/littlebit-site.js";
 
 export const siteRegistry = [
@@ -26,6 +29,11 @@ export const siteRegistry = [
     key: "dantri.com.vn",
     description: "Lay thong tin quan trong cua bai viet Dantri tu URL bai bao.",
     crawl: crawlDantriSite
+  },
+  {
+    key: "horizont.jobs",
+    description: "Lay thong tin job posting tu URL tren Horizont Jobs.",
+    crawl: crawlHorizontJobsSite
   },
   {
     key: "lazada.vn",
@@ -66,6 +74,16 @@ export const siteRegistry = [
     key: "crunchbase.com",
     description: "Tim kiem va lay thong tin cong ty tu Crunchbase bang ten cong ty.",
     crawl: crawlCrunchbaseSite
+  },
+  {
+    key: "asus.com",
+    description: "Lay thong tin san pham ASUS tu URL san pham.",
+    crawl: crawlAsusSite
+  },
+  {
+    key: "extracomputer.de",
+    description: "Lay thong tin san pham EXTRA Computer tu URL san pham.",
+    crawl: crawlExtracomputerSite
   },
   {
     key: "littlebit.de",

@@ -64,6 +64,17 @@ curl -X POST http://localhost:3000/api/crawl \
   }'
 ```
 
+## Horizont Jobs
+
+```bash
+curl -X POST http://localhost:3000/api/crawl \
+  -H "Content-Type: application/json" \
+  -d '{
+    "site": "horizont.jobs",
+    "url": "https://horizont.jobs/jobs/social-media-specialist-w-m-d-062074815-personalwerk-gmbh/"
+  }'
+```
+
 ## YouTube Thumbnail Grabber
 
 ```bash
@@ -118,6 +129,28 @@ curl -X POST http://localhost:3000/api/crawl \
   -d '{
     "site": "lazada.vn",
     "url": "https://www.lazada.vn/products/..."
+  }'
+```
+
+## ASUS
+
+```bash
+curl -X POST http://localhost:3000/api/crawl \
+  -H "Content-Type: application/json" \
+  -d '{
+    "site": "asus.com",
+    "url": "https://www.asus.com/de/laptops/for-home/vivobook/asus-vivobook-s16-s3607/"
+  }'
+```
+
+## EXTRA Computer
+
+```bash
+curl -X POST http://localhost:3000/api/crawl \
+  -H "Content-Type: application/json" \
+  -d '{
+    "site": "extracomputer.de",
+    "url": "https://www.extracomputer.de/produkt/exone-business-mini-x14/153604"
   }'
 ```
 
