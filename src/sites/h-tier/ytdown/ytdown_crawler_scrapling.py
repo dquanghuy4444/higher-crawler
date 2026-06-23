@@ -1,13 +1,13 @@
 """
-YTDown Crawler using Scrapling (StealthyFetcher with auto Cloudflare bypass).
+YTDown Crawler using Scrapling (StealthyFetcher without CAPTCHA solving).
 
 Protocol: reads JSON input from stdin, writes JSON output to stdout.
 All logs go to stderr to keep stdout clean for the JS caller.
 
-Scrapling's StealthyFetcher uses Patchright (patched Playwright Chromium) and
-can auto-solve Cloudflare Turnstile/Interstitial via solve_cloudflare=True.
+Scrapling's StealthyFetcher uses Patchright (patched Playwright Chromium).
 Dynamic interaction (fill input, submit) is done via the page_action callback,
-which receives the raw Playwright page object.
+which receives the raw Playwright page object. CAPTCHA/challenge pages are
+detected and reported instead of solved.
 """
 
 import sys
@@ -170,8 +170,20 @@ async def crawl(input_data):
         page.on("request", on_request)
         page.on("response", on_response)
 
-    # --- page_action: runs AFTER navigation + Cloudflare solve ---
+    # --- page_action: runs AFTER navigation ---
     async def on_page_action(page):
+        try:
+            state = await page.evaluate("() => ({ title: document.title || '', text: document.body?.innerText || '' })")
+        except Exception:
+            state = {"title": "", "text": ""}
+
+        if is_cloudflare_page(state.get("text", ""), state.get("title", "")):
+            log_warn("Cloudflare challenge detected. CAPTCHA solving is disabled by crawler policy.", {
+                "status": "challenge_detected",
+                "profile_dir": profile_dir,
+            })
+            raise RuntimeError("Cloudflare challenge detected; CAPTCHA solving is disabled.")
+
         log_step("page_action: Waiting for app input field.")
 
         # Wait for input to appear
@@ -316,14 +328,13 @@ async def crawl(input_data):
         humanize=True,
     ) as session:
 
-        log_step("Navigating to YTDown with Cloudflare solve.", {"url": YTDOWN_URL})
+        log_step("Navigating to YTDown.", {"url": YTDOWN_URL})
 
         # page_setup registers listeners before navigation
-        # page_action runs after page load + Cloudflare solve
-        # solve_cloudflare=True handles Turnstile/Interstitial automatically
+        # page_action runs after page load and reports challenges without solving them
         page = await session.fetch(
             YTDOWN_URL,
-            solve_cloudflare=True,
+            solve_cloudflare=False,
             timeout=timeout_ms / 1000,
             page_setup=on_page_setup,
             page_action=on_page_action,

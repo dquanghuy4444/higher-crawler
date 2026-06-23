@@ -16,7 +16,6 @@ from urllib.parse import urlparse
 
 from camoufox.async_api import AsyncCamoufox
 from camoufox import launch_options
-from camoufox_captcha import solve_captcha
 
 
 YTDOWN_URL = "https://app.ytdown.to/vi29/"
@@ -402,28 +401,11 @@ async def crawl(input_data):
             state = {"title": "", "text": ""}
 
         if is_cloudflare_page(state.get("text", ""), state.get("title", "")):
-            log_info("Cloudflare challenge detected. Attempting auto-solve...")
-            try:
-                solved = await solve_captcha(
-                    page,
-                    captcha_type="cloudflare",
-                    challenge_type="interstitial",
-                    solve_attempts=5,
-                    solve_click_delay=3.0,
-                )
-                if solved:
-                    log_info("Cloudflare challenge solved automatically.")
-                else:
-                    log_warn("Auto-solve returned False. Falling back to manual wait...")
-                    await wait_for_cloudflare_clearance(page, manual_verify_timeout_ms, profile_dir)
-            except Exception as e:
-                log_warn(f"Auto-solve failed: {e}. Falling back to manual wait...")
-                await wait_for_cloudflare_clearance(page, manual_verify_timeout_ms, profile_dir)
-
-            # Reload page after Cloudflare clearance to get fresh content
-            log_info("Reloading page after Cloudflare clearance...")
-            await page.goto(YTDOWN_URL, wait_until="domcontentloaded", timeout=timeout_ms)
-            await asyncio.sleep(2)
+            log_warn("Cloudflare challenge detected. CAPTCHA solving is disabled by crawler policy.", {
+                "status": "challenge_detected",
+                "profile_dir": profile_dir,
+            })
+            raise RuntimeError("Cloudflare challenge detected; CAPTCHA solving is disabled.")
         else:
             log_info("No Cloudflare challenge detected.")
 

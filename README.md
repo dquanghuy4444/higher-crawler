@@ -1,6 +1,23 @@
 # High Crawler
 
-API Node.js su dung ExpressJS de crawl data theo tung site. Thu muc `src/sites` chi chua logic crawl thuần, con phan dang ky site va dieu phoi API duoc tach ra ngoai.
+API Node.js su dung ExpressJS de crawl data theo tung site. Thu muc `src/sites` chi chua logic crawl thuan, con phan dang ky site va dieu phoi API duoc tach ra ngoai.
+
+## Base crawler capabilities
+
+Core crawler hien co nam trong `src/core`:
+
+- Fetch HTTP bang axios voi timeout, header merge, User-Agent rotation va block detection co ban.
+- Browser crawler duoc khai bao bang metadata `crawler.mode = "browser"` cho cac site Playwright/Camoufox/Scrapling.
+- Rate limit per-site/domain: `crawler.rateLimit.concurrency` va `crawler.rateLimit.delayMs`.
+- Retry/backoff cho loi retryable: timeout, network, 5xx, 429, fetch error.
+- Block detection: 403/429/503, challenge/CAPTCHA text, Cloudflare markers.
+- Parser rieng tung site qua `src/sites/**`.
+- JSON/API an va JSON-LD duoc khai bao bang metadata `preferApi`/`jsonLd` khi site co dung.
+- Output schema validation truoc khi luu.
+- Output JSONL tai `.crawler-output/<site>.jsonl`.
+- Visited state tai `.crawler-state/visited.json`, ho tro `resume: true` hoac `dedupe: true`.
+- Structured logs dang JSON gom site, URL, status, item count, thoi gian, retry/block info.
+- Flow helper `crawlListDetailFlow` cho pagination/list page -> detail page, dedup URL va concurrency/rate limit.
 
 ## Cach chay
 
@@ -122,4 +139,34 @@ export default async function crawlMySite(input) {
 }
 ```
 
-3. Dang ky file do trong `src/config/sites.js`
+3. Tao file config canh crawler, vi du `src/sites/s-tier/my-site.config.js`:
+
+```js
+import crawlMySite from "./my-site.js";
+
+export default {
+  key: "example.com",
+  description: "Lay du lieu example.",
+  crawler: {
+    mode: "http",
+    preferApi: true,
+    jsonLd: true,
+    rateLimit: { concurrency: 1, delayMs: 1000 },
+    retry: { maxAttempts: 3 },
+    outputSchema: {
+      type: "object",
+      required: ["title"],
+      fields: {
+        title: "string",
+        url: "string"
+      }
+    },
+    layout: { minItems: 1 }
+  },
+  crawl: crawlMySite
+};
+```
+
+Registry se tu load moi file `*.config.js` trong `src/sites`, nen them site moi khong can sua core hay `src/config/sites.js`.
+
+Neu crawler da chay thanh cong va muon tranh crawl lai URL cu, gui body co `resume: true` hoac `dedupe: true`.
