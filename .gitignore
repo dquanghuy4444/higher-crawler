@@ -23,6 +23,7 @@ yarn-error.log*
 pnpm-debug.log*
 .crawler-state/
 .crawler-output/
+downloaded_files/
 
 dist/
 build/

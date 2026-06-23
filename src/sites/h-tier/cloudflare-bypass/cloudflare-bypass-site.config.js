@@ -6,7 +6,7 @@ export default {
   crawler: {
     mode: "browser",
     session: { persistent: true },
-    tlsFingerprint: "scrapling|botasaurus",
+    tlsFingerprint: "scrapling|botasaurus|seleniumbase-cdp",
     rateLimit: { concurrency: 1, delayMs: 3000 },
     retry: { maxAttempts: 1 },
     outputSchema: {

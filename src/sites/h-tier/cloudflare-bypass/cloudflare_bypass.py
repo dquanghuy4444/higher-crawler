@@ -7,7 +7,7 @@ All logs go to stderr to keep stdout clean for the JS caller.
 Input:
 {
   "url": "https://example.com",
-  "bypass_method": "scrapling" | "botasaurus",
+  "bypass_method": "scrapling" | "botasaurus" | "seleniumbase-cdp",
   "timeout_ms": 120000,
   "headless": true,
   "keep_browser_open_ms": 0
@@ -28,7 +28,7 @@ from urllib.parse import urlparse
 
 DEFAULT_PROFILE_ROOT = Path.cwd() / ".browser-profiles" / "cloudflare-bypass"
 PROJECT_CACHE_DIR = Path.cwd() / ".cache"
-SUPPORTED_METHODS = {"scrapling", "botasaurus"}
+SUPPORTED_METHODS = {"scrapling", "botasaurus", "seleniumbase-cdp"}
 
 PROJECT_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 os.environ.setdefault("XDG_CACHE_HOME", str(PROJECT_CACHE_DIR))
@@ -601,6 +601,110 @@ def run_botasaurus_sync(params):
         )
 
 
+def run_seleniumbase_cdp_sync(params):
+    try:
+        from playwright.sync_api import sync_playwright
+        from seleniumbase import SB
+    except ModuleNotFoundError as e:
+        raise RuntimeError(
+            "SeleniumBase CDP mode dependencies are not installed. Install them with: python -m pip install seleniumbase playwright"
+        ) from e
+
+    sb_kwargs = {
+        "uc": True,
+        "locale": params.get("locale") or "en",
+        "headless": not params["browser_visible"],
+    }
+    if params.get("proxy"):
+        sb_kwargs["proxy"] = params["proxy"]
+
+    log_info("Launching SeleniumBase CDP Mode.", {
+        "headless": not params["browser_visible"],
+        "locale": sb_kwargs["locale"],
+        "proxy": bool(params.get("proxy")),
+    })
+
+    with contextlib.redirect_stdout(sys.stderr):
+        with SB(**sb_kwargs) as sb:
+            sb.activate_cdp_mode()
+            endpoint_url = sb.get_endpoint_url()
+
+            with sync_playwright() as playwright:
+                browser = playwright.chromium.connect_over_cdp(endpoint_url)
+                context = browser.contexts[0] if browser.contexts else browser.new_context()
+                page = context.pages[0] if context.pages else context.new_page()
+
+                page.goto(params["url"], wait_until="domcontentloaded", timeout=params["timeout_ms"])
+
+                wait_selector = params.get("wait_selector")
+                if wait_selector:
+                    try:
+                        page.wait_for_selector(wait_selector, timeout=params["timeout_ms"], state="visible")
+                    except Exception as e:
+                        log_warn("wait_selector was not found before timeout.", {
+                            "wait_selector": wait_selector,
+                            "error": str(e),
+                        })
+
+                page.wait_for_timeout(5000)
+
+                keep_ms = params["keep_browser_open_ms"]
+                if keep_ms > 0:
+                    log_info("Keeping SeleniumBase CDP browser open for inspection.", {
+                        "keep_browser_open_ms": keep_ms,
+                    })
+                    page.wait_for_timeout(keep_ms)
+
+                title = ""
+                text = ""
+                html_length = None
+                cookies = []
+
+                try:
+                    title = page.title()
+                except Exception:
+                    pass
+                try:
+                    text = page.evaluate("() => document.body?.innerText || ''")
+                except Exception:
+                    pass
+                try:
+                    html_length = page.evaluate("() => document.documentElement?.outerHTML?.length || 0")
+                except Exception:
+                    pass
+                try:
+                    cookies = context.cookies()
+                except Exception:
+                    cookies = []
+
+                final_url = page.url or params["url"]
+                cloudflare_detected = is_cloudflare_text(text, title)
+                analysis = analyze_detection_site(
+                    url=final_url,
+                    title=title,
+                    text=text,
+                    cloudflare_detected=cloudflare_detected,
+                )
+                cf_clearance = next((cookie for cookie in cookies if cookie.get("name") == "cf_clearance"), None)
+
+                browser.close()
+
+                return {
+                    "ok": True,
+                    "engine": "seleniumbase-cdp",
+                    "url": final_url,
+                    "input_url": params["url"],
+                    "title": title or None,
+                    "cloudflare_detected": cloudflare_detected,
+                    "cf_clearance_present": bool(cf_clearance),
+                    "detection_analysis": analysis,
+                    "cookies": summarize_cookies(cookies),
+                    "page_text_sample": re.sub(r"\s+", " ", text).strip()[:3000] if text else None,
+                    "html_length": html_length,
+                    "timeout_ms": params["timeout_ms"],
+                }
+
+
 async def crawl_async(input_data):
     params = parse_input(input_data)
     Path(params["profile_dir"]).mkdir(parents=True, exist_ok=True)
@@ -617,6 +721,8 @@ async def crawl_async(input_data):
         return await crawl_with_scrapling(params)
     if params["bypass_method"] == "botasaurus":
         return run_botasaurus_sync(params)
+    if params["bypass_method"] == "seleniumbase-cdp":
+        return await asyncio.to_thread(run_seleniumbase_cdp_sync, params)
 
     raise ValueError(f"Unsupported bypass_method '{params['bypass_method']}'.")
 

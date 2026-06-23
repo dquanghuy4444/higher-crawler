@@ -7,7 +7,7 @@ API Node.js su dung ExpressJS de crawl data theo tung site. Thu muc `src/sites` 
 Core crawler hien co nam trong `src/core`:
 
 - Fetch HTTP bang axios voi timeout, header merge, User-Agent rotation va block detection co ban.
-- Browser crawler duoc khai bao bang metadata `crawler.mode = "browser"` cho cac site Playwright/Camoufox/Scrapling.
+- Browser crawler duoc khai bao bang metadata `crawler.mode = "browser"` cho cac site Playwright/Camoufox/Scrapling/SeleniumBase CDP.
 - Rate limit per-site/domain: `crawler.rateLimit.concurrency` va `crawler.rateLimit.delayMs`.
 - Retry/backoff cho loi retryable: timeout, network, 5xx, 429, fetch error.
 - Block detection: 403/429/503, challenge/CAPTCHA text, Cloudflare markers.
@@ -18,6 +18,18 @@ Core crawler hien co nam trong `src/core`:
 - Visited state tai `.crawler-state/visited.json`, ho tro `resume: true` hoac `dedupe: true`.
 - Structured logs dang JSON gom site, URL, status, item count, thoi gian, retry/block info.
 - Flow helper `crawlListDetailFlow` cho pagination/list page -> detail page, dedup URL va concurrency/rate limit.
+
+## SeleniumBase CDP engine
+
+Cloudflare bypass probe co them engine `seleniumbase-cdp`, dua tren SeleniumBase UC/CDP Mode va Playwright `connect_over_cdp()`.
+
+Python dependency:
+
+```bash
+python -m pip install seleniumbase playwright
+```
+
+Engine nay chi detect va report CAPTCHA/challenge theo policy cua crawler, khong goi API solve CAPTCHA.
 
 ## Cach chay
 

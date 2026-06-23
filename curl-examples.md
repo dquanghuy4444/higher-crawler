@@ -121,6 +121,20 @@ curl -X POST http://localhost:3000/api/crawl \
   }'
 ```
 
+## Cloudflare/Fingerprint Probe with SeleniumBase CDP
+
+```bash
+curl -s -X POST http://localhost:3000/api/cloudflare-bypass \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tests": ["fingerprint"],
+    "methods": ["seleniumbase-cdp"],
+    "timeout_ms": 45000,
+    "headless": false,
+    "keep_browser_open_ms": 3000
+  }' | jq
+```
+
 ## Lazada
 
 ```bash

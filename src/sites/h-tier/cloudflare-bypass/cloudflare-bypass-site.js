@@ -8,7 +8,7 @@ const __dirname = path.dirname(__filename);
 const PYTHON_SCRIPT = path.join(__dirname, "cloudflare_bypass.py");
 const PROJECT_PYTHON = path.join(__dirname, "../../../../.venv/bin/python");
 const DEFAULT_TEST_KEY = "cloudflare-captcha";
-const DEFAULT_BYPASS_METHODS = ["scrapling", "botasaurus"];
+const DEFAULT_BYPASS_METHODS = ["scrapling", "botasaurus", "seleniumbase-cdp"];
 
 export const DETECTION_TESTS = [
   { key: "fingerprint", category: "everything", url: "https://demo.fingerprint.com/playground", description: "Fingerprint.com bot detection playground" },
@@ -154,6 +154,26 @@ function resolveBypassMethods(input) {
   return methods.length > 0 ? methods : DEFAULT_BYPASS_METHODS;
 }
 
+function parsePythonJsonOutput(stdout) {
+  const trimmed = stdout.trim();
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    const jsonLine = trimmed
+      .split("\n")
+      .map((line) => line.trim())
+      .reverse()
+      .find((line) => line.startsWith("{") && line.endsWith("}"));
+
+    if (!jsonLine) {
+      throw new Error("No JSON object found in Python stdout.");
+    }
+
+    return JSON.parse(jsonLine);
+  }
+}
+
 function summarizeBypassResult(method, test, result) {
   const cloudflareDetected = Boolean(result.cloudflare_detected);
   const cfClearancePresent = result.cf_clearance_present === null ? null : Boolean(result.cf_clearance_present);
@@ -247,7 +267,7 @@ function runPythonCrawler(input) {
       }
 
       try {
-        const result = JSON.parse(stdout);
+        const result = parsePythonJsonOutput(stdout);
 
         if (result.ok === false) {
           reject(createHttpError(
