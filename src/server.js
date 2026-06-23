@@ -1,3 +1,4 @@
+import "dotenv/config";
 import express from "express";
 
 import { findSite, getSiteSummaries } from "./services/site-service.js";

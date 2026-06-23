@@ -46,6 +46,18 @@ PDF crawler co the detect attribute san pham tu text PDF va tra ve `ai_attribute
 
 ## Cach chay
 
+Tao file env local:
+
+```bash
+cp .env.example .env
+```
+
+Dat API key that trong `.env` neu can Gemini detect attribute tu PDF:
+
+```bash
+GEMINI_API_KEY=your-key
+```
+
 ```bash
 npm start
 ```
