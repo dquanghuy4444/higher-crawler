@@ -1,6 +1,8 @@
 import * as cheerio from "cheerio";
+import { PDFParse } from "pdf-parse";
 
 import createAxiosInstance from "../../../lib/create-axios-instance.js";
+import { detectProductAttributesFromContent } from "../../../services/ai-attribute-service.js";
 
 const LITTLEBIT_BASE_URL = "https://www.littlebit.de";
 
@@ -9,6 +11,14 @@ const littlebitInstance = createAxiosInstance(LITTLEBIT_BASE_URL, {
     Accept: "text/html,application/xhtml+xml",
     "Accept-Language": "de,en;q=0.9"
   }
+});
+
+const littlebitPdfInstance = createAxiosInstance(LITTLEBIT_BASE_URL, {
+  headers: {
+    Accept: "application/pdf,*/*",
+    "Accept-Language": "de,en;q=0.9"
+  },
+  responseType: "arraybuffer"
 });
 
 function normalizeText(value = "") {
@@ -52,6 +62,15 @@ function parseInputUrl(input) {
   }
 
   return url;
+}
+
+function isPdfUrl(value = "") {
+  try {
+    const url = new URL(value, LITTLEBIT_BASE_URL);
+    return url.pathname.toLowerCase().endsWith(".pdf");
+  } catch {
+    return /\.pdf(?:$|[?#])/i.test(value);
+  }
 }
 
 function parseJsonAttribute(value) {
@@ -207,6 +226,87 @@ function getAttachments($, baseUrl) {
     .filter(Boolean);
 }
 
+async function extractPdfContent(pdfUrl, options = {}) {
+  const maxTextLength = Number(options.maxTextLength || 20000);
+  let response;
+  let parser;
+
+  try {
+    const url = new URL(pdfUrl);
+    response = await littlebitPdfInstance.get(`${url.pathname}${url.search}`);
+  } catch (error) {
+    throw new Error(`Littlebit crawler could not fetch PDF attachment: ${pdfUrl}`);
+  }
+
+  try {
+    const pdfData = Uint8Array.from(Buffer.from(response.data));
+    parser = new PDFParse({
+      data: pdfData
+    });
+
+    const info = await parser.getInfo({ parsePageInfo: false }).catch(() => null);
+    const textResult = await parser.getText();
+    const text = normalizeText(textResult.text || "");
+
+    return {
+      url: pdfUrl,
+      content_type: response.headers?.["content-type"] || null,
+      size_bytes: Number(response.headers?.["content-length"] || response.data?.byteLength || 0) || null,
+      page_count: info?.total ?? textResult.total ?? null,
+      info: info?.info || null,
+      text: text.slice(0, maxTextLength),
+      text_truncated: text.length > maxTextLength,
+      text_length: text.length
+    };
+  } finally {
+    await parser?.destroy?.();
+  }
+}
+
+async function enrichPdfAttachments(attachments, options = {}) {
+  if (options.enabled === false) {
+    return attachments;
+  }
+
+  const maxPdfs = Math.max(0, Number(options.maxPdfs || 3));
+  let parsedCount = 0;
+
+  const enriched = [];
+  for (const attachment of attachments) {
+    if (!attachment.download_url || !isPdfUrl(attachment.download_url) || parsedCount >= maxPdfs) {
+      enriched.push(attachment);
+      continue;
+    }
+
+    try {
+      parsedCount += 1;
+      const pdf = await extractPdfContent(attachment.download_url, options);
+      const aiAttributes = await detectProductAttributesFromContent(pdf.text, {
+        enabled: options.detectAttributes !== false,
+        title: attachment.name,
+        sourceUrl: attachment.download_url
+      });
+      enriched.push({
+        ...attachment,
+        pdf: {
+          ...pdf,
+          ai_attributes: aiAttributes
+        }
+      });
+    } catch (error) {
+      enriched.push({
+        ...attachment,
+        pdf: {
+          url: attachment.download_url,
+          error: error.message
+        }
+      });
+    }
+  }
+
+  return enriched;
+}
+
 function requiresLoginForPriceAvailability($) {
   const pageText = normalizeText($("body").text()).toLowerCase();
 
@@ -257,6 +357,30 @@ export function parseLittlebitProduct(html, pageUrl = LITTLEBIT_BASE_URL) {
 
 export default async function crawlLittlebitSite(input) {
   const url = parseInputUrl(input);
+
+  if (isPdfUrl(url.toString())) {
+    const pdf = await extractPdfContent(url.toString(), {
+      maxTextLength: input?.pdf_max_text_length
+    });
+    const aiAttributes = await detectProductAttributesFromContent(pdf.text, {
+      enabled: input?.detect_pdf_attributes !== false,
+      title: pdf.info?.Title || url.pathname.split("/").pop() || null,
+      sourceUrl: url.toString()
+    });
+
+    return {
+      url: url.toString(),
+      document_type: "pdf",
+      title: pdf.info?.Title || url.pathname.split("/").pop() || null,
+      pdf: {
+        ...pdf,
+        ai_attributes: aiAttributes
+      },
+      ai_attributes: aiAttributes,
+      content_text: pdf.text
+    };
+  }
+
   let response;
 
   try {
@@ -265,5 +389,13 @@ export default async function crawlLittlebitSite(input) {
     throw new Error("Littlebit crawler could not fetch source page.");
   }
 
-  return parseLittlebitProduct(response.data, url.toString());
+  const product = parseLittlebitProduct(response.data, url.toString());
+  product.attachments = await enrichPdfAttachments(product.attachments, {
+    enabled: input?.read_pdf_attachments !== false,
+    detectAttributes: input?.detect_pdf_attributes !== false,
+    maxPdfs: input?.pdf_max_count,
+    maxTextLength: input?.pdf_max_text_length
+  });
+
+  return product;
 }

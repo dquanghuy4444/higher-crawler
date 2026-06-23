@@ -19,6 +19,8 @@ Core crawler hien co nam trong `src/core`:
 - Structured logs dang JSON gom site, URL, status, item count, thoi gian, retry/block info.
 - Flow helper `crawlListDetailFlow` cho pagination/list page -> detail page, dedup URL va concurrency/rate limit.
 
+Tai lieu chi tiet ve anti-detect engines: `docs/anti-detect-libraries.md`.
+
 ## SeleniumBase CDP engine
 
 Cloudflare bypass probe co them engine `seleniumbase-cdp`, dua tren SeleniumBase UC/CDP Mode va Playwright `connect_over_cdp()`.
@@ -30,6 +32,17 @@ python -m pip install seleniumbase playwright
 ```
 
 Engine nay chi detect va report CAPTCHA/challenge theo policy cua crawler, khong goi API solve CAPTCHA.
+
+## AI attribute extraction
+
+PDF crawler co the detect attribute san pham tu text PDF va tra ve `ai_attributes`.
+
+- Mac dinh: neu chua co API key, service dung heuristic fallback de bat model number, capacity, interface, dimensions, speed, warranty.
+- Neu co `GEMINI_API_KEY` hoac `AI_ATTRIBUTES_API_KEY`, service se goi Gemini API.
+- Bien moi truong tuy chinh:
+  - `AI_ATTRIBUTES_MODEL` hoac `GEMINI_MODEL`: model dung de extract attribute, mac dinh `gemini-2.5-flash`.
+  - `GEMINI_API_ENDPOINT`: endpoint, mac dinh `https://generativelanguage.googleapis.com/v1beta`.
+  - `AI_ATTRIBUTES_MAX_INPUT_CHARS`: gioi han text gui vao AI, mac dinh `16000`.
 
 ## Cach chay
 
