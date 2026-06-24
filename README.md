@@ -64,6 +64,44 @@ npm start
 
 Server mac dinh chay tai `http://localhost:3000`.
 
+## Chay bang Docker tren VPS
+
+1. Tao file env:
+
+```bash
+cp .env.example .env
+```
+
+2. Build va chay:
+
+```bash
+docker compose up -d --build
+```
+
+3. Xem log:
+
+```bash
+docker compose logs -f
+```
+
+4. Dung service:
+
+```bash
+docker compose down
+```
+
+Compose da map port `${PORT}:3000` va mount volume de giu lai:
+
+- `.crawler-output`
+- `.crawler-state`
+- `downloaded_files`
+- `.browser-profiles`
+
+Luu y:
+
+- Image hien tai da co `node`, `python3`, `pip` de chay API chinh va cac crawler Python co ban.
+- Mot so crawler anti-detect/browser nang hon nhu `scrapling`, `camoufox`, `botasaurus`, `seleniumbase`, Playwright browser binaries... chua duoc cai san trong image nay. Neu ban muon chay cac endpoint do tren VPS, minh co the them 1 ban Docker image day du hon cho nhom crawler nay.
+
 ## API
 
 ### `GET /health`

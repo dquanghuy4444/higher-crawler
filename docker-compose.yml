@@ -1,0 +1,28 @@
+services:
+  high-crawler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: high-crawler
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "${PORT:-3000}:3000"
+    volumes:
+      - crawler_output:/app/.crawler-output
+      - crawler_state:/app/.crawler-state
+      - crawler_downloads:/app/downloaded_files
+      - crawler_browser_profiles:/app/.browser-profiles
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  crawler_output:
+  crawler_state:
+  crawler_downloads:
+  crawler_browser_profiles:
