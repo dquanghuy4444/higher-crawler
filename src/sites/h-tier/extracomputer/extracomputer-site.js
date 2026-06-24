@@ -493,7 +493,7 @@ function cartesianProduct(arrays) {
 function buildOptionCombinations(variantGroups) {
   const groupOptions = variantGroups.map((group) =>
     group.options
-      .filter((opt) => !opt.disabled && opt.option_id)
+      .filter((opt) => opt.option_id)
       .map((opt) => ({
         group: group.group,
         group_id: group.group_id,
@@ -540,18 +540,15 @@ async function fetchAllVariantDetails(variantInfo, pageUrl) {
       continue;
     }
 
-    const formData = new URLSearchParams();
-
-    for (const opt of combo) {
-      formData.append(opt.group_id, opt.option_id);
-    }
+    const optionIds = combo.map((opt) => opt.option_id);
+    const optionsParam = encodeURIComponent(JSON.stringify(optionIds));
 
     let variantUrl;
     let variantProductId;
 
     try {
       const switchResponse = await extracomputerInstance.get(
-        `${switchUrl}?${formData.toString()}`,
+        `${switchUrl}?options=${optionsParam}`,
         {
           headers: {
             "Accept": "application/json, text/html, */*"
@@ -593,8 +590,9 @@ async function fetchAllVariantDetails(variantInfo, pageUrl) {
       );
 
       const variantData = parseVariantPage(variantResponse.data, variantUrl);
+      const { _product_id: parsedProductId, ...variantOutput } = variantData;
 
-      const productId = variantData.current_product_id || variantProductId || variantUrl;
+      const productId = parsedProductId || variantProductId || variantUrl;
 
       if (seenProductIds.has(productId)) {
         continue;
@@ -606,7 +604,7 @@ async function fetchAllVariantDetails(variantInfo, pageUrl) {
         seenProductIds.add(variantProductId);
       }
 
-      results.push(variantData);
+      results.push(variantOutput);
     } catch {
       continue;
     }
@@ -710,20 +708,9 @@ export function parseExtracomputerProduct(html, pageUrl = EXTRACOMPUTER_BASE_URL
       "meta[property='og:title'][content]",
       "meta[name='twitter:title'][content]"
     ]) ||
-    getFirstText($, [
-      "h1",
-      "[itemprop='name']",
-      ".product-title",
-      "title"
-    ]);
+    getFirstText($, ["h1", "[itemprop='name']", ".product-title", "title"]) ||
+    null;
 
-  if (!title) {
-    throw new Error("EXTRA Computer product content was not found in the source page.");
-  }
-
-  const attributeGroups = dedupeAttributeGroups(parseSpecificationGroups($));
-  const images = getImages($, product, pageUrl);
-  const breadcrumbs = getBreadcrumbs($, pageUrl);
   const canonicalUrl = getFirstAttr($, ["link[rel='canonical']"], "href");
   const variantInfo = getVariantInfo($, pageUrl);
   const variantList = getVariantList(variantInfo);
@@ -731,58 +718,7 @@ export function parseExtracomputerProduct(html, pageUrl = EXTRACOMPUTER_BASE_URL
   return {
     url: pageUrl,
     canonical_url: canonicalUrl ? toAbsoluteUrl(canonicalUrl, pageUrl) : pageUrl,
-    product_id:
-      normalizeText(product?.productID) ||
-      getFirstContent($, [
-        "meta[name='product-id'][content]",
-        "meta[property='product:retailer_item_id'][content]"
-      ]) ||
-      null,
-    item_id:
-      normalizeText(product?.sku) ||
-      getFirstContent($, ["meta[name='sku'][content]"]) ||
-      null,
     title,
-    sku:
-      normalizeText(product?.sku) ||
-      getFirstText($, [
-        "[data-auto-id='sku']",
-        ".sku",
-        "[class*='sku']",
-        "[itemprop='sku']"
-      ]) ||
-      null,
-    manufacturer_number:
-      normalizeText(product?.mpn) ||
-      getFirstText($, [
-        "[itemprop='mpn']",
-        "[class*='mpn']"
-      ]) ||
-      null,
-    ean:
-      normalizeText(product?.gtin13 || product?.gtin || product?.gtin14 || product?.gtin12) ||
-      null,
-    description: getProductDescription($, product),
-    brand: {
-      name:
-        normalizeText(product?.brand?.name || product?.brand) ||
-        "EXTRA Computer",
-      owner_domain: "extracomputer.de",
-      plugilo_name: null
-    },
-    price: getPrice($, product),
-    availability: getAvailability($, product),
-    requires_login_for_price_availability: false,
-    attributes: getFlatAttributes(attributeGroups),
-    attribute_groups: attributeGroups,
-    package_contents: [],
-    warranty: [],
-    attachments: getDownloads($, pageUrl),
-    images,
-    primary_image: images[0]?.url ?? null,
-    breadcrumbs,
-    category: breadcrumbs.at(-1)?.name || null,
-    content_text: normalizeText($("main").text() || $("body").text()),
     variants: variantList,
     variant_info: variantInfo
   };
