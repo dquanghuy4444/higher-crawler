@@ -15,6 +15,7 @@ export default {
         document_type: "string",
         title: "string",
         attachments: "array",
+        pdf_attachments: "array",
         pdf: "object",
         ai_attributes: "object",
         content_text: "string"

@@ -175,10 +175,7 @@ curl -s -X POST http://localhost:3000/api/crawl \
   -H "Content-Type: application/json" \
   -d '{
     "site": "littlebit.de",
-    "url": "https://www.littlebit.de/media/productattach/c/o/cor_l1025072.pdf",
-    "pdf_max_text_length": 12000,
-    "detect_pdf_attributes": true,
-    "save": false
+    "url": "https://www.littlebit.de/media/productattach/c/o/cor_l1025072.pdf"
   }' | jq
 ```
 

@@ -1,5 +1,20 @@
+import { GoogleGenAI, setDefaultBaseUrls } from "@google/genai";
+
+import { logError, logEvent, logWarn } from "../core/logger.js";
+
 const DEFAULT_MODEL = process.env.AI_ATTRIBUTES_MODEL || process.env.GEMINI_MODEL || "gemini-2.5-flash";
 const DEFAULT_ENDPOINT = process.env.GEMINI_API_ENDPOINT || "https://generativelanguage.googleapis.com/v1beta";
+
+if (process.env.GEMINI_API_ENDPOINT) {
+  try {
+    const cleanedUrl = process.env.GEMINI_API_ENDPOINT.replace(/\/v1beta\/?$/, "").replace(/\/$/, "");
+    setDefaultBaseUrls({
+      geminiUrl: cleanedUrl
+    });
+  } catch (err) {
+    // Ignore potential errors during initialization
+  }
+}
 
 function normalizeText(value = "") {
   return String(value).replace(/\s+/g, " ").trim();
@@ -76,14 +91,7 @@ function parseHeuristicAttributes(content = "", context = {}) {
   };
 }
 
-function getGeminiOutputText(response) {
-  return (response.candidates || [])
-    .flatMap((candidate) => candidate.content?.parts || [])
-    .map((part) => part.text)
-    .filter(Boolean)
-    .join("\n")
-    .trim();
-}
+// getGeminiOutputText is replaced by SDK's response.text getter
 
 function parseJsonText(value = "") {
   const trimmed = value.trim();
@@ -169,49 +177,34 @@ async function extractWithGemini(content, context = {}) {
   }
 
   const clippedContent = normalizeText(content).slice(0, Number(process.env.AI_ATTRIBUTES_MAX_INPUT_CHARS || 16000));
-  const endpoint = `${DEFAULT_ENDPOINT.replace(/\/$/, "")}/models/${encodeURIComponent(DEFAULT_MODEL)}:generateContent?key=${encodeURIComponent(apiKey)}`;
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      contents: [
-        {
-          role: "user",
-          parts: [
-            {
-              text: [
-                "Extract product attributes from PDF text.",
-                "Return only factual data visible in the text.",
-                "Preserve units.",
-                "Use concise snake_case attribute names.",
-                "Use empty strings instead of null values.",
-                JSON.stringify({
-                  title: context.title || "",
-                  source_url: context.sourceUrl || "",
-                  content: clippedContent
-                })
-              ].join("\n")
-            }
-          ]
-        }
-      ],
-      generationConfig: {
-        temperature: 0,
-        responseMimeType: "application/json",
-        responseSchema: buildGeminiSchema()
-      }
-    })
+  
+  const ai = new GoogleGenAI({ apiKey });
+  
+  const response = await ai.models.generateContent({
+    model: DEFAULT_MODEL,
+    contents: [
+      "Extract product attributes from PDF text.",
+      "Return only factual data visible in the text.",
+      "Preserve units.",
+      "Use concise snake_case attribute names.",
+      "Use empty strings instead of null values.",
+      JSON.stringify({
+        title: context.title || "",
+        source_url: context.sourceUrl || "",
+        content: clippedContent
+      })
+    ].join("\n"),
+    config: {
+      temperature: 0,
+      responseMimeType: "application/json",
+      responseSchema: buildGeminiSchema()
+    }
   });
 
-  if (!response.ok) {
-    const details = await response.text().catch(() => "");
-    throw new Error(`Gemini attribute extraction failed with status ${response.status}: ${details.slice(0, 500)}`);
+  const outputText = response.text;
+  if (!outputText) {
+    throw new Error("Gemini response returned no text.");
   }
-
-  const payload = await response.json();
-  const outputText = getGeminiOutputText(payload);
   const parsed = normalizeGeminiResult(parseJsonText(outputText));
 
   return {
@@ -224,21 +217,78 @@ async function extractWithGemini(content, context = {}) {
 
 export async function detectProductAttributesFromContent(content, context = {}) {
   const useAi = context.enabled !== false;
+  const normalizedContent = normalizeText(content);
+  const logDetails = {
+    provider_preference: useAi ? "gemini_then_heuristic" : "heuristic_only",
+    title: normalizeText(context.title) || null,
+    source_url: normalizeText(context.sourceUrl) || null,
+    content_length: normalizedContent.length,
+    content_preview: normalizedContent.slice(0, 200) || null,
+    model: DEFAULT_MODEL,
+    endpoint: DEFAULT_ENDPOINT
+  };
+
+  logEvent("ai_attribute_detection.start", logDetails);
 
   if (useAi) {
     try {
       const aiResult = await extractWithGemini(content, context);
       if (aiResult) {
+        logEvent("ai_attribute_detection.success", {
+          ...logDetails,
+          provider: aiResult.provider,
+          attribute_count: Array.isArray(aiResult.attributes) ? aiResult.attributes.length : 0,
+          note_count: Array.isArray(aiResult.notes) ? aiResult.notes.length : 0,
+          product_name: aiResult.product?.name || null,
+          product_brand: aiResult.product?.brand || null
+        });
         return aiResult;
       }
+
+      logWarn("ai_attribute_detection.ai_unavailable", logDetails);
     } catch (error) {
-      return {
+      logWarn("ai_attribute_detection.ai_failed_fallback", {
+        ...logDetails,
+        error: error.message
+      });
+
+      const heuristicResult = {
         ...parseHeuristicAttributes(content, context),
         provider: "heuristic",
         ai_error: error.message
       };
+
+      logEvent("ai_attribute_detection.fallback_success", {
+        ...logDetails,
+        provider: heuristicResult.provider,
+        attribute_count: Array.isArray(heuristicResult.attributes) ? heuristicResult.attributes.length : 0,
+        note_count: Array.isArray(heuristicResult.notes) ? heuristicResult.notes.length : 0,
+        ai_error: error.message
+      });
+
+      return heuristicResult;
     }
   }
 
-  return parseHeuristicAttributes(content, context);
+  try {
+    const heuristicResult = parseHeuristicAttributes(content, context);
+
+    logEvent("ai_attribute_detection.success", {
+      ...logDetails,
+      provider: heuristicResult.provider,
+      attribute_count: Array.isArray(heuristicResult.attributes) ? heuristicResult.attributes.length : 0,
+      note_count: Array.isArray(heuristicResult.notes) ? heuristicResult.notes.length : 0,
+      product_name: heuristicResult.product?.name || null,
+      product_brand: heuristicResult.product?.brand || null
+    });
+
+    return heuristicResult;
+  } catch (error) {
+    logError("ai_attribute_detection.failed", {
+      ...logDetails,
+      error: error.message
+    });
+
+    throw error;
+  }
 }

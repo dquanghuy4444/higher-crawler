@@ -379,6 +379,242 @@ function getOfferValue(product, fieldName) {
   return null;
 }
 
+function parseVariantSwitchOptions($) {
+  const raw = $(".product-detail-configurator form[data-variant-switch-options]").first().attr("data-variant-switch-options");
+  const parsed = parseJsonText(raw);
+
+  return parsed && typeof parsed === "object"
+    ? {
+        ...parsed,
+        url: parsed.url ? toAbsoluteUrl(parsed.url, EXTRACOMPUTER_BASE_URL) : null
+      }
+    : null;
+}
+
+function getVariantGroups($) {
+  return $(".product-detail-configurator-group")
+    .map((_, group) => {
+      const node = $(group);
+      const name = normalizeText(node.find(".product-detail-configurator-group-title, legend").first().text()) || null;
+      const groupId = node.find("input[type='radio']").first().attr("name") || null;
+      const options = node.find(".product-detail-configurator-option")
+        .map((__, optionNode) => {
+          const option = $(optionNode);
+          const input = option.find("input[type='radio']").first();
+          const label = option.find("label").first();
+
+          return {
+            group_id: input.attr("name") || groupId,
+            option_id: input.attr("value") || null,
+            option_key: input.attr("id") || null,
+            label: normalizeText(label.text()) || normalizeText(label.attr("title")) || null,
+            active: input.is(":checked"),
+            combinable: input.hasClass("is-combinable") || label.hasClass("is-combinable"),
+            disabled: input.is(":disabled") || option.hasClass("disabled") || label.hasClass("disabled")
+          };
+        })
+        .get()
+        .filter((item) => item.label || item.option_id);
+
+      if (!name && options.length === 0) {
+        return null;
+      }
+
+      return {
+        group: name,
+        group_id: groupId,
+        selected_option_id: options.find((item) => item.active)?.option_id || null,
+        selected_label: options.find((item) => item.active)?.label || null,
+        options
+      };
+    })
+    .get()
+    .filter(Boolean);
+}
+
+function getVariantInfo($, pageUrl) {
+  const variantGroups = getVariantGroups($);
+  const switchOptions = parseVariantSwitchOptions($);
+  const parentProductId = $("#parentId").attr("value") || null;
+  const currentProductId = $("#pdid").attr("value") || null;
+  const subtitle = normalizeText($(".product-detail-subtitle").first().text()) || null;
+
+  return {
+    has_variants: variantGroups.length > 0,
+    parent_product_id: parentProductId,
+    current_product_id: currentProductId,
+    current_variant_title: subtitle,
+    switch: switchOptions,
+    selected_options: variantGroups
+      .map((group) => ({
+        group: group.group,
+        group_id: group.group_id,
+        option_id: group.selected_option_id,
+        label: group.selected_label
+      }))
+      .filter((item) => item.option_id || item.label),
+    groups: variantGroups,
+    total_option_count: variantGroups.reduce((sum, group) => sum + group.options.length, 0),
+    variant_axes_count: variantGroups.length,
+    canonical_parent_url: getFirstAttr($, ["link[rel='canonical']"], "href")
+      ? toAbsoluteUrl(getFirstAttr($, ["link[rel='canonical']"], "href"), pageUrl)
+      : null
+  };
+}
+
+function getVariantList(variantInfo) {
+  const groups = Array.isArray(variantInfo?.groups) ? variantInfo.groups : [];
+
+  return groups.flatMap((group) =>
+    group.options.map((option) => ({
+      group: group.group,
+      group_id: group.group_id,
+      option_id: option.option_id,
+      option_key: option.option_key,
+      label: option.label,
+      active: option.active,
+      combinable: option.combinable,
+      disabled: option.disabled
+    }))
+  );
+}
+
+function cartesianProduct(arrays) {
+  if (arrays.length === 0) {
+    return [[]];
+  }
+
+  const [first, ...rest] = arrays;
+  const restProduct = cartesianProduct(rest);
+
+  return first.flatMap((item) => restProduct.map((combo) => [item, ...combo]));
+}
+
+function buildOptionCombinations(variantGroups) {
+  const groupOptions = variantGroups.map((group) =>
+    group.options
+      .filter((opt) => !opt.disabled && opt.option_id)
+      .map((opt) => ({
+        group: group.group,
+        group_id: group.group_id,
+        option_id: opt.option_id,
+        option_key: opt.option_key,
+        label: opt.label
+      }))
+  );
+
+  const validGroupOptions = groupOptions.filter((opts) => opts.length > 0);
+
+  return cartesianProduct(validGroupOptions).map((combo) => combo.filter(Boolean));
+}
+
+function parseVariantPage(html, pageUrl) {
+  const $ = cheerio.load(html);
+  const variantInfo = getVariantInfo($, pageUrl);
+
+  const currentProductId = $("#pdid").attr("value") || null;
+
+  return {
+    _product_id: currentProductId,
+    url: pageUrl,
+    variant_title: normalizeText($(".product-detail-subtitle").first().text()) || null,
+    selected_options: variantInfo.selected_options
+  };
+}
+
+async function fetchAllVariantDetails(variantInfo, pageUrl) {
+  const switchUrl = variantInfo?.switch?.url;
+  const groups = Array.isArray(variantInfo?.groups) ? variantInfo.groups : [];
+
+  if (!switchUrl || groups.length === 0) {
+    return [];
+  }
+
+  const combinations = buildOptionCombinations(groups);
+  const seenProductIds = new Set();
+  const seenUrls = new Set();
+  const results = [];
+
+  for (const combo of combinations) {
+    if (combo.length === 0) {
+      continue;
+    }
+
+    const formData = new URLSearchParams();
+
+    for (const opt of combo) {
+      formData.append(opt.group_id, opt.option_id);
+    }
+
+    let variantUrl;
+    let variantProductId;
+
+    try {
+      const switchResponse = await extracomputerInstance.get(
+        `${switchUrl}?${formData.toString()}`,
+        {
+          headers: {
+            "Accept": "application/json, text/html, */*"
+          },
+          validateStatus: (status) => status < 500
+        }
+      );
+
+      const responseData = switchResponse.data;
+
+      if (typeof responseData === "object") {
+        variantUrl = responseData.url ? toAbsoluteUrl(responseData.url, EXTRACOMPUTER_BASE_URL) : null;
+        variantProductId = responseData.productId || null;
+      } else if (switchResponse.headers?.location) {
+        variantUrl = toAbsoluteUrl(switchResponse.headers.location, EXTRACOMPUTER_BASE_URL);
+      }
+    } catch {
+      continue;
+    }
+
+    if (!variantUrl) {
+      continue;
+    }
+
+    if (variantProductId && seenProductIds.has(variantProductId)) {
+      continue;
+    }
+
+    if (seenUrls.has(variantUrl)) {
+      continue;
+    }
+
+    seenUrls.add(variantUrl);
+
+    try {
+      const parsedUrl = new URL(variantUrl);
+      const variantResponse = await extracomputerInstance.get(
+        `${parsedUrl.pathname}${parsedUrl.search}`
+      );
+
+      const variantData = parseVariantPage(variantResponse.data, variantUrl);
+
+      const productId = variantData.current_product_id || variantProductId || variantUrl;
+
+      if (seenProductIds.has(productId)) {
+        continue;
+      }
+
+      seenProductIds.add(productId);
+
+      if (variantProductId) {
+        seenProductIds.add(variantProductId);
+      }
+
+      results.push(variantData);
+    } catch {
+      continue;
+    }
+  }
+
+  return results;
+}
+
 function getBreadcrumbs($, pageUrl) {
   return $("nav a[href], .breadcrumb a[href], [aria-label='breadcrumb'] a[href]")
     .map((_, element) => ({
@@ -489,9 +725,12 @@ export function parseExtracomputerProduct(html, pageUrl = EXTRACOMPUTER_BASE_URL
   const images = getImages($, product, pageUrl);
   const breadcrumbs = getBreadcrumbs($, pageUrl);
   const canonicalUrl = getFirstAttr($, ["link[rel='canonical']"], "href");
+  const variantInfo = getVariantInfo($, pageUrl);
+  const variantList = getVariantList(variantInfo);
 
   return {
-    url: canonicalUrl ? toAbsoluteUrl(canonicalUrl, pageUrl) : pageUrl,
+    url: pageUrl,
+    canonical_url: canonicalUrl ? toAbsoluteUrl(canonicalUrl, pageUrl) : pageUrl,
     product_id:
       normalizeText(product?.productID) ||
       getFirstContent($, [
@@ -543,12 +782,15 @@ export function parseExtracomputerProduct(html, pageUrl = EXTRACOMPUTER_BASE_URL
     primary_image: images[0]?.url ?? null,
     breadcrumbs,
     category: breadcrumbs.at(-1)?.name || null,
-    content_text: normalizeText($("main").text() || $("body").text())
+    content_text: normalizeText($("main").text() || $("body").text()),
+    variants: variantList,
+    variant_info: variantInfo
   };
 }
 
 export default async function crawlExtracomputerSite(input) {
   const url = parseInputUrl(input);
+  const includeVariants = input?.include_variants === true;
   let response;
 
   try {
@@ -557,5 +799,12 @@ export default async function crawlExtracomputerSite(input) {
     throw new Error("EXTRA Computer crawler could not fetch source page.");
   }
 
-  return parseExtracomputerProduct(response.data, url.toString());
+  const result = parseExtracomputerProduct(response.data, url.toString());
+
+  if (includeVariants && result.variant_info?.has_variants) {
+    const variantDetails = await fetchAllVariantDetails(result.variant_info, url.toString());
+    result.variant_details = variantDetails;
+  }
+
+  return result;
 }
