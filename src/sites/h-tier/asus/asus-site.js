@@ -1,6 +1,9 @@
+import vm from "node:vm";
+
 import * as cheerio from "cheerio";
 
 import createAxiosInstance from "../../../lib/create-axios-instance.js";
+import { detectProductAttributesFromContent } from "../../../services/ai-attribute-service.js";
 
 const ASUS_BASE_URL = "https://www.asus.com";
 
@@ -121,28 +124,8 @@ function getFirstText($, selectors) {
   return null;
 }
 
-function getFirstTextWithin($, root, selectors) {
-  for (const selector of selectors) {
-    const value = normalizeText(root.find(selector).first().text());
-
-    if (value) {
-      return value;
-    }
-  }
-
-  return null;
-}
-
-function getFirstAttr($, selectors, attributeName) {
-  for (const selector of selectors) {
-    const value = $(selector).first().attr(attributeName);
-
-    if (normalizeText(value)) {
-      return value;
-    }
-  }
-
-  return null;
+function cleanAttributeName(value) {
+  return normalizeText(value).replace(/:\s*$/, "");
 }
 
 function toImageObject(url, alt = "") {
@@ -163,194 +146,223 @@ function addImage(images, seen, image) {
   images.push(image);
 }
 
-function collectImagesFromJsonLd(images, seen, product, pageUrl) {
-  const candidates = [product?.image, product?.thumbnailUrl].flatMap((value) =>
-    Array.isArray(value) ? value : [value]
-  );
+function decodeHtmlToText(value) {
+  if (!value) {
+    return "";
+  }
 
-  for (const candidate of candidates) {
-    if (typeof candidate === "string") {
-      addImage(images, seen, toImageObject(toAbsoluteUrl(candidate, pageUrl)));
-      continue;
-    }
+  const $ = cheerio.load(`<div>${value}</div>`);
+  return normalizeText($.text());
+}
 
-    addImage(
-      images,
-      seen,
-      toImageObject(
-        toAbsoluteUrl(candidate?.url || candidate?.contentUrl || candidate?.thumbnailUrl, pageUrl),
-        candidate?.name || candidate?.caption || candidate?.description || ""
-      )
-    );
+function getNuxtState(html) {
+  const $ = cheerio.load(html);
+  const nuxtScript = $("script")
+    .map((_, element) => $(element).html())
+    .get()
+    .find((value) => typeof value === "string" && value.includes("__NUXT__="));
+
+  if (!nuxtScript) {
+    return null;
+  }
+
+  try {
+    const context = { window: {} };
+    vm.createContext(context);
+    vm.runInContext(nuxtScript, context, { timeout: 5000 });
+    return context.window.__NUXT__?.state || context.__NUXT__?.state || null;
+  } catch {
+    return null;
   }
 }
 
-function collectImagesFromDom($, images, seen, pageUrl) {
-  const selectors = [
-    "meta[property='og:image'][content]",
-    "meta[name='twitter:image'][content]",
-    "img[src]",
-    "img[data-src]",
-    "img[data-original]",
-    "img[data-lazy]",
-    "source[srcset]",
-    "[style*='background-image']"
-  ];
-
-  $(selectors.join(", ")).each((_, element) => {
-    const node = $(element);
-    const style = node.attr("style") || "";
-    const backgroundImageMatch = style.match(/background-image:\s*url\((['"]?)(.*?)\1\)/i);
-    const srcSetRaw = node.attr("srcset");
-    const srcSetValue = srcSetRaw?.split(",")[0]?.trim()?.split(/\s+/)[0] || null;
-    const rawUrl =
-      node.attr("content") ||
-      node.attr("src") ||
-      node.attr("data-src") ||
-      node.attr("data-original") ||
-      node.attr("data-lazy") ||
-      srcSetValue ||
-      backgroundImageMatch?.[2] ||
-      null;
-
-    addImage(
-      images,
-      seen,
-      toImageObject(toAbsoluteUrl(rawUrl, pageUrl), node.attr("alt") || node.attr("title") || "")
-    );
-  });
+function normalizeProductPath(pathname) {
+  const cleaned = pathname.replace(/\/(?:techspec|helpdesk_knowledge|review|where-to-buy)\/?$/i, "/");
+  return cleaned.endsWith("/") ? cleaned : `${cleaned}/`;
 }
 
-function getImages($, product, pageUrl) {
+function buildPageUrls(url) {
+  const basePath = normalizeProductPath(url.pathname);
+  const baseUrl = new URL(basePath, `${url.origin}/`).toString();
+
+  return {
+    overviewUrl: baseUrl,
+    techspecUrl: toAbsoluteUrl(`${basePath}techspec/`, url.origin),
+    supportUrl: toAbsoluteUrl(`${basePath}helpdesk_knowledge/`, url.origin)
+  };
+}
+
+function getProductFromJsonLd($) {
+  const jsonLdEntries = getJsonLdEntries($);
+
+  return (
+    jsonLdEntries.find((entry) => hasType(entry, "Product")) ||
+    jsonLdEntries.find((entry) => normalizeText(entry?.name) && entry?.image) ||
+    null
+  );
+}
+
+function getOfferValue(product, fieldName) {
+  const offers = [product?.offers].flatMap((value) => (Array.isArray(value) ? value : [value]));
+
+  for (const offer of offers) {
+    const value = offer?.[fieldName];
+
+    if (value !== undefined && value !== null && normalizeText(value)) {
+      return normalizeText(value);
+    }
+  }
+
+  return null;
+}
+
+function getCanonicalUrl($, state, pageUrl) {
+  const canonical =
+    state?.Seo?.metaData?.Canonical ||
+    $("link[rel='canonical']").first().attr("href") ||
+    pageUrl;
+
+  return toAbsoluteUrl(canonical, pageUrl);
+}
+
+function getBrand(product) {
+  return {
+    name: normalizeText(product?.brand?.name || product?.brand) || "ASUS",
+    owner_domain: "asus.com",
+    plugilo_name: null
+  };
+}
+
+function getImagesFromState(state, pageUrl) {
   const images = [];
   const seen = new Set();
+  const seoImages = [state?.Seo?.metaData?.Structure?.Image].flatMap((value) =>
+    Array.isArray(value) ? value : [value]
+  );
+  const heroImages = [
+    state?.PDPage?.PDInfo?.OPInfo?.ProductImage?.Desktop?.["1x"],
+    state?.PDPage?.PDInfo?.OPInfo?.ProductImage?.Desktop?.["2x"],
+    state?.PDPage?.PDInfo?.OPInfo?.ProductImage?.Tablet?.["1x"],
+    state?.PDPage?.PDInfo?.OPInfo?.ProductImage?.Tablet?.["2x"],
+    state?.PDPage?.PDInfo?.OPInfo?.ProductImage?.Mobile?.["1x"],
+    state?.PDPage?.PDInfo?.OPInfo?.ProductImage?.Mobile?.["2x"]
+  ];
 
-  collectImagesFromJsonLd(images, seen, product, pageUrl);
-  collectImagesFromDom($, images, seen, pageUrl);
+  for (const rawUrl of [...seoImages, ...heroImages]) {
+    addImage(images, seen, toImageObject(toAbsoluteUrl(rawUrl, pageUrl)));
+  }
 
   return images;
 }
 
-function cleanAttributeName(value) {
-  return normalizeText(value).replace(/:\s*$/, "");
-}
-
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function parseTableRows($, table, groupName = null) {
-  const rows = [];
-
-  $(table)
-    .find("tr")
-    .each((_, row) => {
-      const columns = $(row).find("th, td");
-
-      if (columns.length < 2) {
-        return;
-      }
-
-      const name = cleanAttributeName($(columns[0]).text());
-      const value = normalizeText(
-        columns
-          .slice(1)
-          .map((__, cell) => $(cell).text())
-          .get()
-          .join(" ")
-      );
-
-      if (name || value) {
-        rows.push({ group: groupName, name, value });
-      }
-    });
-
-  return rows;
-}
-
-function parseListAttributes($, scope, groupName = null) {
-  const rows = [];
-
-  $(scope)
-    .find("li")
-    .each((_, item) => {
-      const node = $(item);
-      const label = cleanAttributeName(
-        node.find("strong, b, .label, .title, dt").first().text() || node.contents().first().text()
-      );
-      const value = label
-        ? normalizeText(node.text()).replace(new RegExp(`^${escapeRegExp(label)}\\s*:?\\s*`), "")
-        : normalizeText(node.text());
-
-      if (label || value) {
-        rows.push({ group: groupName, name: label, value });
-      }
-    });
-
-  return rows;
-}
-
-function parseSpecificationGroups($) {
-  const grouped = new Map();
-  const containerSelectors = [
-    "[id*='spec']",
-    "[class*='spec']",
-    "[data-auto-id*='spec']",
-    "[data-testid*='spec']"
-  ];
-
-  $(containerSelectors.join(", ")).each((_, section) => {
-    const node = $(section);
-    const groupName =
-      getFirstTextWithin($, node, ["h1", "h2", "h3", "h4", ".title", ".heading"]) ||
-      null;
-
-    for (const entry of parseTableRows($, section, groupName)) {
-      const bucket = groupName || "General";
-      if (!grouped.has(bucket)) {
-        grouped.set(bucket, []);
-      }
-      grouped.get(bucket).push({ name: entry.name, value: entry.value });
-    }
-
-    for (const entry of parseListAttributes($, section, groupName)) {
-      const bucket = groupName || "General";
-      if (!grouped.has(bucket)) {
-        grouped.set(bucket, []);
-      }
-      grouped.get(bucket).push({ name: entry.name, value: entry.value });
-    }
-  });
-
-  const groups = [...grouped.entries()]
-    .map(([group, items]) => ({
-      group,
-      items: items.filter((item) => item.name || item.value)
-    }))
-    .filter((entry) => entry.items.length > 0);
-
-  if (groups.length > 0) {
-    return groups;
-  }
-
-  const fallbackItems = [
-    ...parseTableRows($, "table", null),
-    ...parseListAttributes($, "main, body", null)
-  ];
-
-  if (fallbackItems.length === 0) {
+function parseFeatureList(featureHtml) {
+  if (!featureHtml) {
     return [];
   }
 
-  return [
-    {
-      group: "General",
-      items: fallbackItems.map((item) => ({
-        name: item.name,
-        value: item.value
-      }))
+  const $ = cheerio.load(`<div>${featureHtml}</div>`);
+
+  return $("li")
+    .map((_, element) => {
+      const node = $(element);
+      let label = cleanAttributeName(node.find("strong, b").first().text());
+      const rawText = normalizeText(node.text());
+      if (!label && rawText.includes(":")) {
+        label = cleanAttributeName(rawText.split(":")[0]);
+      }
+      const value = label
+        ? normalizeText(rawText.replace(new RegExp(`^${label}\\s*:?\\s*`), ""))
+        : rawText;
+
+      if (!label && !value) {
+        return null;
+      }
+
+      return {
+        name: label || "Feature",
+        value: value || rawText
+      };
+    })
+    .get()
+    .filter(Boolean);
+}
+
+function toSpecItemsFromObject(specList = {}) {
+  return Object.entries(specList)
+    .map(([name, value]) => ({
+      name: cleanAttributeName(name),
+      value: decodeHtmlToText(value)
+    }))
+    .filter((item) => item.name || item.value);
+}
+
+function toSpecItemsFromArray(specList = []) {
+  return specList
+    .map((item) => ({
+      name: cleanAttributeName(item?.Title),
+      value: decodeHtmlToText(item?.Content)
+    }))
+    .filter((entry) => entry.name || entry.value);
+}
+
+function getSpecGroupsFromState(techspecState, title) {
+  const pdPage = techspecState?.PDPage || {};
+  const grouped = [];
+  const modelGroups = Array.isArray(pdPage.PDTechSpecM2List?.TechSpec)
+    ? pdPage.PDTechSpecM2List.TechSpec
+    : [];
+
+  if (modelGroups.length > 0) {
+    for (const model of modelGroups) {
+      const items = toSpecItemsFromObject(model?.SpecList || {});
+
+      if (items.length > 0) {
+        grouped.push({
+          group: normalizeText(model?.Name) || title || "Specifications",
+          items
+        });
+      }
     }
-  ];
+  }
+
+  const singleModelItems =
+    modelGroups.length > 0 ? [] : toSpecItemsFromArray(pdPage.PDTechSpecM2?.SpecList || []);
+  if (singleModelItems.length > 0) {
+    grouped.push({
+      group: "Specifications",
+      items: singleModelItems
+    });
+  }
+
+  return grouped;
+}
+
+function getOverviewGroupsFromState(overviewState) {
+  const pdInfo = overviewState?.PDPage?.PDInfo;
+  const featureItems = parseFeatureList(pdInfo?.OPInfo?.Feature);
+  const groups = [];
+
+  if (featureItems.length > 0) {
+    groups.push({
+      group: "Overview",
+      items: featureItems
+    });
+  }
+
+  const slogan = decodeHtmlToText(pdInfo?.OPInfo?.Slogan);
+  if (slogan) {
+    groups.push({
+      group: "Summary",
+      items: [
+        {
+          name: "Slogan",
+          value: slogan
+        }
+      ]
+    });
+  }
+
+  return groups;
 }
 
 function dedupeAttributeGroups(attributeGroups) {
@@ -390,165 +402,275 @@ function getFlatAttributes(attributeGroups) {
   );
 }
 
-function getBreadcrumbs($, pageUrl) {
-  return $("nav a[href], .breadcrumb a[href], [aria-label='breadcrumb'] a[href]")
-    .map((_, element) => ({
-      name: normalizeText($(element).text()) || null,
-      url: toAbsoluteUrl($(element).attr("href"), pageUrl)
-    }))
-    .get()
-    .filter((item) => item.name || item.url);
-}
+function parseFallbackAttributeGroups(html) {
+  const $ = cheerio.load(html);
+  const grouped = [];
+  const rows = [];
 
-function getDownloads($, pageUrl) {
-  const downloadKeywords = /(manual|download|driver|bios|firmware|support|guide|handbuch)/i;
+  $("[class*='TechSpec__rowTable__']").each((_, row) => {
+    const node = $(row);
+    const name = cleanAttributeName(
+      normalizeText(node.find(".rowTableTitle, [class*='rowTableTitle']").first().text())
+    );
+    const value = normalizeText(
+      node
+        .find(".rowTableItemViewBox p, .rowTableItemViewBox li")
+        .map((__, item) => $(item).text())
+        .get()
+        .join(" | ")
+    );
 
-  return $("a[href]")
-    .map((_, element) => {
-      const node = $(element);
-      const href = node.attr("href");
-      const name = normalizeText(node.text()) || normalizeText(node.attr("title") || "");
-
-      if (!downloadKeywords.test(`${href || ""} ${name}`)) {
-        return null;
-      }
-
-      return {
-        name: name || null,
-        download_url: toAbsoluteUrl(href, pageUrl),
-        description: null,
-        type: null,
-        size: null,
-        icon_url: null
-      };
-    })
-    .get()
-    .filter(Boolean);
-}
-
-function getOfferValue(product, fieldName) {
-  const offers = [product?.offers].flatMap((value) => (Array.isArray(value) ? value : [value]));
-
-  for (const offer of offers) {
-    const value = offer?.[fieldName];
-
-    if (value !== undefined && value !== null && normalizeText(value)) {
-      return normalizeText(value);
+    if (name || value) {
+      rows.push({ name, value });
     }
+  });
+
+  if (rows.length > 0) {
+    grouped.push({
+      group: "Specifications",
+      items: rows
+    });
   }
 
-  return null;
+  return grouped;
 }
 
-function getProductDescription($, product) {
-  return (
-    normalizeText(product?.description) ||
-    getFirstContent($, [
-      "meta[name='description'][content]",
-      "meta[property='og:description'][content]"
-    ]) ||
-    getFirstText($, [
-      "[itemprop='description']",
-      ".ProductOverview",
-      ".overview",
-      "main"
-    ])
+function getKeyFeatures(overviewState) {
+  const featureItems = parseFeatureList(overviewState?.PDPage?.PDInfo?.OPInfo?.Feature);
+  return featureItems.map((item) => normalizeText(`${item.name}: ${item.value}`)).filter(Boolean);
+}
+
+function getSupportLinksFromState(overviewState, pageUrls) {
+  const productTabList = overviewState?.PDPage?.productTabList;
+  const tabLinks = Array.isArray(productTabList?.TabList) ? productTabList.TabList : [];
+  const links = [];
+  const seen = new Set();
+
+  const addLink = (name, url, kind = null) => {
+    const absoluteUrl = toAbsoluteUrl(url, pageUrls.overviewUrl);
+    if (!absoluteUrl || seen.has(absoluteUrl)) {
+      return;
+    }
+
+    seen.add(absoluteUrl);
+    links.push({
+      name: normalizeText(name) || null,
+      kind,
+      url: absoluteUrl
+    });
+  };
+
+  for (const tab of tabLinks) {
+    addLink(tab?.Name, tab?.Link, normalizeText(tab?.Webpath || "").toLowerCase() || null);
+  }
+
+  addLink(productTabList?.WTB?.WTBText, productTabList?.WTB?.WTBLink, "where_to_buy");
+  addLink(productTabList?.Buy?.ButtonText, productTabList?.Buy?.ButtonLink, "buy");
+  addLink("Support", pageUrls.supportUrl, "support");
+  addLink("Specifications", pageUrls.techspecUrl, "specifications");
+
+  return links;
+}
+
+function getAttachmentsFromSupportLinks(supportLinks) {
+  return supportLinks
+    .filter((item) => ["support", "specifications"].includes(item.kind))
+    .map((item) => ({
+      name: item.name,
+      download_url: item.url,
+      description: null,
+      type: item.kind,
+      size: null,
+      icon_url: null
+    }));
+}
+
+function getBreadcrumbsFromUrl(pageUrl, title) {
+  const url = new URL(pageUrl);
+  const segments = url.pathname.split("/").filter(Boolean);
+  const locale = segments[0]?.length <= 5 ? segments[0] : null;
+  const startIndex = locale ? 1 : 0;
+  const productSegments = segments.slice(startIndex).filter((segment) => !/^(techspec|helpdesk_knowledge|review|where-to-buy)$/i.test(segment));
+  const breadcrumbSegments = productSegments.slice(0, -1);
+  const breadcrumbs = [];
+
+  let currentPath = locale ? `/${locale}` : "";
+  for (const segment of breadcrumbSegments) {
+    currentPath += `/${segment}`;
+    breadcrumbs.push({
+      name: normalizeText(decodeURIComponent(segment)),
+      url: toAbsoluteUrl(`${currentPath}/`, url.origin)
+    });
+  }
+
+  breadcrumbs.push({
+    name: title,
+    url: pageUrl
+  });
+
+  return breadcrumbs;
+}
+
+function buildContentText({ title, description, keyFeatures, attributeGroups }) {
+  return normalizeText(
+    [
+      title,
+      description,
+      ...keyFeatures,
+      ...attributeGroups.flatMap((group) => [
+        group.group,
+        ...group.items.map((item) => `${item.name}: ${item.value}`)
+      ])
+    ].join("\n")
   );
+}
+
+function extractVariantModels(techspecState) {
+  const models = Array.isArray(techspecState?.PDPage?.PDTechSpecM2List?.TechSpec)
+    ? techspecState.PDPage.PDTechSpecM2List.TechSpec
+    : [];
+
+  return models.map((model) => ({
+    product_id: normalizeText(model?.ProductId) || null,
+    name: normalizeText(model?.Name) || null,
+    image_url: toAbsoluteUrl(model?.ImageLink, ASUS_BASE_URL)
+  }));
 }
 
 export function parseAsusProduct(html, pageUrl = ASUS_BASE_URL) {
   const $ = cheerio.load(html);
-  const jsonLdEntries = getJsonLdEntries($);
-  const product =
-    jsonLdEntries.find((entry) => hasType(entry, "Product")) ||
-    jsonLdEntries.find((entry) => normalizeText(entry?.name) && entry?.image);
-
+  const state = getNuxtState(html);
+  const product = getProductFromJsonLd($);
   const title =
+    normalizeText(state?.PDPage?.PDInfo?.Name) ||
     normalizeText(product?.name) ||
     getFirstContent($, [
       "meta[property='og:title'][content]",
       "meta[name='twitter:title'][content]"
     ]) ||
-    getFirstText($, [
-      "h1",
-      "[itemprop='name']",
-      "title"
-    ]);
+    getFirstText($, ["h1", "[itemprop='name']", "title"]);
 
   if (!title) {
     throw new Error("ASUS product content was not found in the source page.");
   }
 
-  const attributeGroups = dedupeAttributeGroups(parseSpecificationGroups($));
-  const images = getImages($, product, pageUrl);
-  const breadcrumbs = getBreadcrumbs($, pageUrl);
-  const canonicalUrl = getFirstAttr($, ["link[rel='canonical']"], "href");
+  const description =
+    decodeHtmlToText(state?.PDPage?.PDInfo?.OPInfo?.Slogan) ||
+    normalizeText(product?.description) ||
+    getFirstContent($, [
+      "meta[name='description'][content]",
+      "meta[property='og:description'][content]"
+    ]) ||
+    "";
+  const attributeGroups = dedupeAttributeGroups([
+    ...getOverviewGroupsFromState(state)
+  ]);
+  const images = getImagesFromState(state, pageUrl);
 
   return {
-    url: canonicalUrl ? toAbsoluteUrl(canonicalUrl, pageUrl) : pageUrl,
+    url: getCanonicalUrl($, state, pageUrl),
     product_id:
+      normalizeText(state?.PDPage?.PDInfo?.ProductID) ||
       normalizeText(product?.productID) ||
-      getFirstContent($, [
-        "meta[name='product-id'][content]",
-        "meta[property='product:retailer_item_id'][content]"
-      ]) ||
+      normalizeText(state?.Seo?.metaData?.Structure?.Sku) ||
       null,
-    item_id:
-      normalizeText(product?.sku) ||
-      getFirstContent($, ["meta[name='sku'][content]"]) ||
-      null,
+    item_id: normalizeText(product?.sku) || null,
     title,
-    sku:
-      normalizeText(product?.sku) ||
-      getFirstText($, [
-        "[data-auto-id='sku']",
-        ".sku",
-        "[class*='sku']"
-      ]) ||
-      null,
-    manufacturer_number:
-      normalizeText(product?.mpn) ||
-      getFirstText($, [
-        "[itemprop='mpn']",
-        "[class*='mpn']"
-      ]) ||
-      null,
+    sku: normalizeText(product?.sku) || null,
+    manufacturer_number: normalizeText(product?.mpn) || null,
     ean:
       normalizeText(product?.gtin13 || product?.gtin || product?.gtin14 || product?.gtin12) ||
       null,
-    description: getProductDescription($, product),
-    brand: {
-      name:
-        normalizeText(product?.brand?.name || product?.brand) ||
-        "ASUS",
-      owner_domain: "asus.com",
-      plugilo_name: null
-    },
-    price: getOfferValue(product, "price"),
-    availability: getOfferValue(product, "availability"),
+    description,
+    brand: getBrand(product),
+    price: getOfferValue(product, "price") || normalizeText(state?.Seo?.metaData?.Structure?.Price) || null,
+    availability:
+      getOfferValue(product, "availability") ||
+      normalizeText(state?.Seo?.metaData?.Structure?.Availability) ||
+      null,
     requires_login_for_price_availability: false,
     attributes: getFlatAttributes(attributeGroups),
     attribute_groups: attributeGroups,
     package_contents: [],
     warranty: [],
-    attachments: getDownloads($, pageUrl),
+    attachments: [],
     images,
     primary_image: images[0]?.url ?? null,
-    breadcrumbs,
-    category: breadcrumbs.at(-1)?.name || null,
-    content_text: normalizeText($("main").text() || $("body").text())
+    breadcrumbs: getBreadcrumbsFromUrl(pageUrl, title),
+    category: normalizeText(state?.PDPage?.PDInfo?.ProductLevel2Code) || null,
+    content_text: buildContentText({
+      title,
+      description,
+      keyFeatures: getKeyFeatures(state),
+      attributeGroups
+    })
   };
 }
 
 export default async function crawlAsusSite(input) {
   const url = parseInputUrl(input);
-  let response;
+  const pageUrls = buildPageUrls(url);
+  let overviewResponse;
+  let techspecResponse;
 
   try {
-    response = await asusInstance.get(`${url.pathname}${url.search}`);
+    [overviewResponse, techspecResponse] = await Promise.all([
+      asusInstance.get(new URL(pageUrls.overviewUrl).pathname),
+      asusInstance.get(new URL(pageUrls.techspecUrl).pathname)
+    ]);
   } catch {
     throw new Error("ASUS crawler could not fetch source page.");
   }
 
-  return parseAsusProduct(response.data, url.toString());
+  const overviewHtml = overviewResponse.data;
+  const techspecHtml = techspecResponse.data;
+  const overviewState = getNuxtState(overviewHtml);
+  const techspecState = getNuxtState(techspecHtml);
+  const baseProduct = parseAsusProduct(overviewHtml, pageUrls.overviewUrl);
+  const overviewGroups = getOverviewGroupsFromState(overviewState);
+  const specGroups = getSpecGroupsFromState(techspecState, baseProduct.title);
+  const fallbackSpecGroups = specGroups.length > 0 ? [] : parseFallbackAttributeGroups(techspecHtml);
+  const attributeGroups = dedupeAttributeGroups([
+    ...overviewGroups,
+    ...specGroups,
+    ...fallbackSpecGroups
+  ]);
+  const supportLinks = getSupportLinksFromState(overviewState, pageUrls);
+  const attachments = getAttachmentsFromSupportLinks(supportLinks);
+  const keyFeatures = getKeyFeatures(overviewState);
+  const modelVariants = extractVariantModels(techspecState);
+  const contentText = buildContentText({
+    title: baseProduct.title,
+    description: baseProduct.description,
+    keyFeatures,
+    attributeGroups
+  });
+  const aiAttributes = await detectProductAttributesFromContent(contentText, {
+    enabled: input?.detect_ai_attributes !== false,
+    title: baseProduct.title,
+    sourceUrl: pageUrls.overviewUrl
+  });
+
+  return {
+    ...baseProduct,
+    url: pageUrls.overviewUrl,
+    canonical_url: baseProduct.url,
+    attributes: getFlatAttributes(attributeGroups),
+    attribute_groups: attributeGroups,
+    key_features: keyFeatures,
+    model_variants: modelVariants,
+    attachments,
+    support_links: supportLinks,
+    breadcrumbs: getBreadcrumbsFromUrl(pageUrls.overviewUrl, baseProduct.title),
+    category:
+      normalizeText(overviewState?.PDPage?.PDInfo?.ProductLevel2Code) ||
+      baseProduct.category,
+    content_text: contentText,
+    ai_attributes: aiAttributes,
+    source_pages: {
+      overview_url: pageUrls.overviewUrl,
+      techspec_url: pageUrls.techspecUrl,
+      support_url: pageUrls.supportUrl
+    }
+  };
 }
