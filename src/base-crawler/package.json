@@ -1,0 +1,24 @@
+{
+  "name": "base-crawler",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Reusable, extensible, decoupled base crawler for multi-domain scraping.",
+  "main": "index.js",
+  "dependencies": {
+    "ioredis": "^5.4.1",
+    "pino": "^9.5.0",
+    "node-cron": "^3.0.3",
+    "cheerio": "^1.1.0"
+  },
+  "peerDependencies": {
+    "curl_cffi": ">=0.10.0",
+    "pg": "^8.13.0",
+    "prom-client": "^15.1.0",
+    "express": "^5.1.0"
+  },
+  "scripts": {
+    "crawl": "node examples/basic-crawl.js",
+    "crawl:advanced": "node examples/advanced-crawl.js",
+    "crawl:redis": "node examples/redis-crawl.js"
+  }
+}
